@@ -29,6 +29,14 @@ static bool too_many_loops (unsigned loops);
 static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 
+static struct list waiting_list;
+
+struct sleep_thread{
+	struct thread *t;
+	int64_t tick_to_wake_up;
+	struct list_elem elem;
+};
+
 /* Sets up the 8254 Programmable Interval Timer (PIT) to
    interrupt PIT_FREQ times per second, and registers the
    corresponding interrupt. */
@@ -41,6 +49,8 @@ timer_init (void) {
 	outb (0x43, 0x34);    /* CW: counter 0, LSB then MSB, mode 2, binary. */
 	outb (0x40, count & 0xff);
 	outb (0x40, count >> 8);
+
+	list_init(&waiting_list);
 
 	intr_register_ext (0x20, timer_interrupt, "8254 Timer");
 }
@@ -87,14 +97,55 @@ timer_elapsed (int64_t then) {
 	return timer_ticks () - then;
 }
 
+
+
+
+
 /* Suspends execution for approximately TICKS timer ticks. */
 void
 timer_sleep (int64_t ticks) {
+
+	/*
+	// busy_wait 방식 
+	// start에서 현재의 timer_tick(boot~지금까지의 tick 수)을 받아 저장한다.
 	int64_t start = timer_ticks ();
 
+	// interrupt가 나면 ASSERT
 	ASSERT (intr_get_level () == INTR_ON);
+
+	// start부터 지금까지의 tick 수가 ticks 보다 작으면 계속 yield
 	while (timer_elapsed (start) < ticks)
 		thread_yield ();
+
+	*/
+
+	int64_t start = timer_ticks();
+    int64_t wakeup = start + ticks;
+
+    struct sleep_thread *st = malloc(sizeof(struct sleep_thread));
+    if (!st) {
+        return;
+    }
+
+    ASSERT(intr_get_level() == INTR_ON);
+
+    st->t = thread_current();
+    st->tick_to_wake_up = wakeup;
+
+    enum intr_level old_level = intr_disable();  // 인터럽트를 비활성화하여 원자성을 보장
+
+    struct list_elem *e;
+    for (e = list_begin(&waiting_list); e != list_end(&waiting_list); e = list_next(e)) {
+        struct sleep_thread *st_iter = list_entry(e, struct sleep_thread, elem);
+        if (st_iter->tick_to_wake_up > wakeup) {
+            break;
+        }
+    }
+    list_insert(e, &st->elem);
+
+    thread_block();  // 스레드 블록
+
+    intr_set_level(old_level);  // 이전 인터럽트 상태로 복원
 }
 
 /* Suspends execution for approximately MS milliseconds. */
@@ -125,7 +176,23 @@ timer_print_stats (void) {
 static void
 timer_interrupt (struct intr_frame *args UNUSED) {
 	ticks++;
-	thread_tick ();
+    thread_tick();
+
+    struct list_elem *e;
+
+    while (!list_empty(&waiting_list)) {
+        e = list_front(&waiting_list);
+        struct sleep_thread *st = list_entry(e, struct sleep_thread, elem);
+
+        if (st->tick_to_wake_up <= ticks) {
+            list_pop_front(&waiting_list);
+            thread_unblock(st->t);  // 스레드를 직접 깨움
+            free(st);  // 스레드 구조체 메모리 해제
+        } else {
+            break;
+        }
+    }
+
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
