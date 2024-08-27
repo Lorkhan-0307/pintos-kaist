@@ -187,7 +187,6 @@ timer_interrupt (struct intr_frame *args UNUSED) {
         if (st->tick_to_wake_up <= ticks) {
             list_pop_front(&waiting_list);
             thread_unblock(st->t);  // 스레드를 직접 깨움
-            free(st);  // 스레드 구조체 메모리 해제
         } else {
             break;
         }
