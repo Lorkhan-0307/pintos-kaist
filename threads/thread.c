@@ -211,7 +211,7 @@ thread_create (const char *name, int priority,
 
 	//print_ready_priority();
 
-	if(list_entry(list_front(&ready_list), struct thread, elem)->priority > thread_current()->priority){
+	if(!list_empty(&ready_list) && list_entry(list_front(&ready_list), struct thread, elem)->priority > thread_current()->priority){
 		//printf("YIELDING from %d priority to %d priority\n", thread_current()->priority, list_entry(list_front(&ready_list), struct thread, elem)->priority);
 		thread_yield();
 	}
@@ -338,10 +338,21 @@ thread_yield (void) {
 	intr_set_level (old_level);
 }
 
+void
+sort_ready_list(){
+	list_sort(&ready_list, higher_priority, NULL);
+
+	if(thread_current()->priority < list_entry(list_front(&ready_list), struct thread, elem)->priority){
+		thread_yield();
+	}
+}
+
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority (int new_priority) {
-	thread_current ()->priority = new_priority;
+	thread_current ()->original_priority = new_priority;
+
+	priority_return();
 
 	if(list_empty(&ready_list)) return;
 	
@@ -444,7 +455,11 @@ init_thread (struct thread *t, const char *name, int priority) {
 	strlcpy (t->name, name, sizeof t->name);
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
+	t->original_priority = priority;
 	t->magic = THREAD_MAGIC;
+	t->wait_lock = NULL;
+
+	list_init(&t->donated_priority);
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should

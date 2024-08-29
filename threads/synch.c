@@ -32,6 +32,8 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 
+#define MAX_DEPTH 9
+
 /* Initializes semaphore SEMA to VALUE.  A semaphore is a
    nonnegative integer along with two atomic operators for
    manipulating it:
@@ -191,6 +193,27 @@ lock_init (struct lock *lock) {
 	sema_init (&lock->semaphore, 1);
 }
 
+bool
+higher_priority_by_struct_priority (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
+{
+    const struct thread *thread_a = list_entry (a, struct thread, donated_priority_elem);
+    const struct thread *thread_b = list_entry (b, struct thread, donated_priority_elem);
+    
+    // thread_a의 우선순위가 더 크면 true를 반환 (높은 우선순위가 앞으로 오도록).
+    return thread_a->priority > thread_b->priority;
+}
+
+void priority_donation(struct thread *cur_thread, int depth)
+{
+	if(depth == MAX_DEPTH) return;
+	if(!cur_thread->wait_lock) return;
+
+	cur_thread->wait_lock->holder->priority = cur_thread->priority;
+	priority_donation(cur_thread->wait_lock->holder, depth += 1);
+
+	return;
+}
+
 /* Acquires LOCK, sleeping until it becomes available if
    necessary.  The lock must not already be held by the current
    thread.
@@ -201,11 +224,24 @@ lock_init (struct lock *lock) {
    we need to sleep. */
 void
 lock_acquire (struct lock *lock) {
+	// 현재 모든 테스트에서는 이걸 사용하고 있다.
+	// 그러니까, try로 교체하고 획득하면 이걸 사용하면 되겠지만
+	// 안되면, wait에 넣는 과정이 필요하다.
 	ASSERT (lock != NULL);
 	ASSERT (!intr_context ());
 	ASSERT (!lock_held_by_current_thread (lock));
 
+	struct thread *cur_thread = thread_current();
+
+	if(lock->holder){
+		cur_thread->wait_lock = lock;
+		list_insert_ordered(&lock->holder->donated_priority, &cur_thread->donated_priority_elem, higher_priority_by_struct_priority, NULL);
+		priority_donation(cur_thread, 0);
+	}
+	
 	sema_down (&lock->semaphore);
+	
+	//sema_down_lock (&lock->semaphore, lock);
 	lock->holder = thread_current ();
 }
 
@@ -228,6 +264,33 @@ lock_try_acquire (struct lock *lock) {
 	return success;
 }
 
+void remove_lock(struct lock *lock)
+{
+	struct list_elem *e;
+
+	for(e = list_begin(&thread_current()->donated_priority); e != list_end(&thread_current()->donated_priority); e = list_next(e)){
+		struct thread *t = list_entry(e, struct thread, donated_priority_elem);
+		if(t->wait_lock == lock){
+			list_remove(&t->donated_priority_elem);
+		}
+	}
+
+}
+
+void priority_return()
+{
+	thread_current()->priority = thread_current()->original_priority;
+
+	if(!list_empty(&thread_current()->donated_priority)){
+		list_sort(&thread_current()->donated_priority, higher_priority_by_struct_priority, NULL);
+
+		if(thread_current()->priority < list_entry(list_front(&(thread_current()->donated_priority)), struct thread, donated_priority_elem)->priority){
+			thread_current()->priority = list_entry(list_front(&(thread_current()->donated_priority)), struct thread, donated_priority_elem)->priority;
+		}
+	}
+}
+
+
 /* Releases LOCK, which must be owned by the current thread.
    This is lock_release function.
 
@@ -240,6 +303,10 @@ lock_release (struct lock *lock) {
 	ASSERT (lock_held_by_current_thread (lock));
 
 	lock->holder = NULL;
+
+	remove_lock(lock);
+	priority_return(lock);
+
 	sema_up (&lock->semaphore);
 }
 
