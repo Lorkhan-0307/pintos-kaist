@@ -122,26 +122,23 @@ timer_sleep (int64_t ticks) {
 	int64_t start = timer_ticks();
     int64_t wakeup = start + ticks;
 
-    struct sleep_thread *st = malloc(sizeof(struct sleep_thread));
-    if (!st) {
-        return;
-    }
+    struct sleep_thread st;
 
     ASSERT(intr_get_level() == INTR_ON);
 
-    st->t = thread_current();
-    st->tick_to_wake_up = wakeup;
+    st.t = thread_current();
+    st.tick_to_wake_up = wakeup;
 
     enum intr_level old_level = intr_disable();  // 인터럽트를 비활성화하여 원자성을 보장
 
     struct list_elem *e;
     for (e = list_begin(&waiting_list); e != list_end(&waiting_list); e = list_next(e)) {
-        struct sleep_thread *st_iter = list_entry(e, struct sleep_thread, elem);
-        if (st_iter->tick_to_wake_up > wakeup) {
+        struct sleep_thread st_iter = *list_entry(e, struct sleep_thread, elem);
+        if (st_iter.tick_to_wake_up > wakeup) {
             break;
         }
     }
-    list_insert(e, &st->elem);
+    list_insert(e, &(st.elem));
 
     thread_block();  // 스레드 블록
 
@@ -178,15 +175,26 @@ timer_interrupt (struct intr_frame *args UNUSED) {
 	ticks++;
     thread_tick();
 
+	if(thread_mlfqs){
+		increment_recent_cpu();
+		if(ticks%4 == 0){
+			calc_priority_all();
+			if(ticks % TIMER_FREQ == 0){
+				calc_recent_cpu_all();
+				calc_load_avg();
+			}
+		}
+	}
+
     struct list_elem *e;
 
     while (!list_empty(&waiting_list)) {
         e = list_front(&waiting_list);
-        struct sleep_thread *st = list_entry(e, struct sleep_thread, elem);
+        struct sleep_thread st = *list_entry(e, struct sleep_thread, elem);
 
-        if (st->tick_to_wake_up <= ticks) {
+        if (st.tick_to_wake_up <= ticks) {
             list_pop_front(&waiting_list);
-            thread_unblock(st->t);  // 스레드를 직접 깨움
+            thread_unblock(st.t);  // 스레드를 직접 깨움
         } else {
             break;
         }

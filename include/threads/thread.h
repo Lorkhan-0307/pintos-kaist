@@ -28,6 +28,10 @@ typedef int tid_t;
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
 
+#define NICE_DEFAULT 0
+#define RECENT_CPU_DEFAULT 0
+#define LOAD_AVG_DEFAULT 0
+
 /* A kernel thread or user process.
  *
  * Each thread structure is stored in its own 4 kB page.  The
@@ -94,10 +98,14 @@ struct thread {
 
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
+	struct list_elem allelem;
 	struct lock *wait_lock;
 	struct list donated_priority;
 	struct list_elem donated_priority_elem;
 	int original_priority;
+	int nice;
+	int recent_cpu;
+	
 
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
@@ -112,6 +120,12 @@ struct thread {
 	struct intr_frame tf;               /* Information for switching */
 	unsigned magic;                     /* Detects stack overflow. */
 };
+
+// struct priority_thread_queue{
+// 	int priority;
+// 	struct list ready_thread_list;
+// 	struct list_elem elem;
+// };
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.

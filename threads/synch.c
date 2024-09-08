@@ -231,10 +231,17 @@ lock_acquire (struct lock *lock) {
 	ASSERT (!intr_context ());
 	ASSERT (!lock_held_by_current_thread (lock));
 
+	if (thread_mlfqs) {
+		sema_down (&lock->semaphore);
+		lock->holder = thread_current ();
+		return ;
+  	}
+
 	struct thread *cur_thread = thread_current();
 
 	if(lock->holder){
 		cur_thread->wait_lock = lock;
+		// Advanced Scheduler를 구현하기 위해 우선순위 기부 제거
 		list_insert_ordered(&lock->holder->donated_priority, &cur_thread->donated_priority_elem, higher_priority_by_struct_priority, NULL);
 		priority_donation(cur_thread, 0);
 	}
@@ -303,7 +310,12 @@ lock_release (struct lock *lock) {
 	ASSERT (lock_held_by_current_thread (lock));
 
 	lock->holder = NULL;
+	if (thread_mlfqs) {
+    	sema_up (&lock->semaphore);
+    	return;
+  	}
 
+	// Advanced Scheduler 구현을 위해 우선순위 기부 제거
 	remove_lock(lock);
 	priority_return(lock);
 
