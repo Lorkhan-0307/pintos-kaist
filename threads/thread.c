@@ -258,6 +258,22 @@ thread_create (const char *name, int priority,
 	t->tf.cs = SEL_KCSEG;
 	t->tf.eflags = FLAG_IF;
 
+
+	t->fd_table = palloc_get_multiple(PAL_ZERO, FDT_PAGES);
+	if(t->fd_table == NULL) {
+		return TID_ERROR;
+	}
+	t->fd_idx = 2;  // 0은 입력, 1은 출력에 이미 할당됨
+	t->fd_table[0] = 1;
+	t->fd_table[1] = 2;
+
+	
+
+	//t->parent_thread = cur;
+
+	struct thread *cur = thread_current();
+ 	list_push_back(&cur->child_list, &t->child_elem);
+
 	/* Add to run queue. */
 	thread_unblock (t);
 
@@ -266,12 +282,21 @@ thread_create (const char *name, int priority,
 
 	//print_ready_priority();
 
-	if (!list_empty (&ready_list) && thread_current ()->priority < list_entry (list_front (&ready_list), struct thread, elem)->priority)
-        thread_yield ();
+	preempt_thread();
 
 
 	return tid;
 
+}
+
+void preempt_thread()
+{
+	struct thread* cur = thread_current();
+	if(cur == idle_thread) return;
+	if(list_empty(&ready_list)) return;
+	struct thread* front = list_entry(list_front(&ready_list), struct thread, elem);
+	if(cur->priority > front->priority) return;
+	if (!intr_context()) thread_yield();
 }
 
 /* Puts the current thread to sleep.  It will not be scheduled
@@ -412,8 +437,7 @@ thread_set_priority (int new_priority) {
 
 	if(list_empty(&ready_list)) return;
 	
-	if (!list_empty (&ready_list) && thread_current ()->priority < list_entry (list_front (&ready_list), struct thread, elem)->priority)
-        thread_yield ();
+	preempt_thread();
 }
 
 /* Returns the current thread's priority. */
@@ -434,8 +458,7 @@ thread_set_nice (int nice) {
 	enum intr_level old_level = intr_disable ();
 	thread_current ()->nice = nice;
 	calc_priority (thread_current ());
-	if (!list_empty (&ready_list) && thread_current ()->priority < list_entry (list_front (&ready_list), struct thread, elem)->priority)
-        thread_yield ();
+	preempt_thread();
 	intr_set_level (old_level);
 }
 
@@ -532,6 +555,16 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->wait_lock = NULL;
 	t->nice = NICE_DEFAULT;
 	t->recent_cpu = RECENT_CPU_DEFAULT;
+
+	t->exit_status = 0;
+	t->running = NULL;
+	list_init(&t->child_list);
+	sema_init(&t->fork_sema, 0);
+	sema_init(&t->wait_sema, 0);
+	sema_init(&t->free_sema, 0);
+	lock_init(&t->child_list_lock);
+
+
 
 	list_push_back(&all_list, &t->allelem);
 

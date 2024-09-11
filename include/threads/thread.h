@@ -5,6 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 #include "threads/interrupt.h"
+#include "threads/synch.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -31,6 +32,9 @@ typedef int tid_t;
 #define NICE_DEFAULT 0
 #define RECENT_CPU_DEFAULT 0
 #define LOAD_AVG_DEFAULT 0
+
+#define FDT_PAGES 3  // fd table에 할당할 페이지 수
+#define FDT_COUNT_LIMIT FDT_PAGES *(1<<9)  // fd table 최대 크기 3 * 512 : 1536
 
 /* A kernel thread or user process.
  *
@@ -105,6 +109,24 @@ struct thread {
 	int original_priority;
 	int nice;
 	int recent_cpu;
+
+	struct file **fd_table;  // fd table
+  	int fd_idx;  // fd index
+
+	int exit_status;
+
+	struct list child_list;
+	struct list_elem child_elem;
+	struct lock child_list_lock;
+	struct intr_frame parent_intr_frame;
+
+	struct file *running;
+
+	struct semaphore wait_sema;
+	struct semaphore fork_sema;
+	struct semaphore free_sema;
+
+	struct thread* parent_thread;
 	
 
 #ifdef USERPROG
