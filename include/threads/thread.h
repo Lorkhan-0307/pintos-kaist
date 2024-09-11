@@ -5,6 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 #include "threads/interrupt.h"
+#include "threads/synch.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -27,6 +28,13 @@ typedef int tid_t;
 #define PRI_MIN 0                       /* Lowest priority. */
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
+
+#define NICE_DEFAULT 0
+#define RECENT_CPU_DEFAULT 0
+#define LOAD_AVG_DEFAULT 0
+
+#define FDT_PAGES 3  // fd table에 할당할 페이지 수
+#define FDT_COUNT_LIMIT FDT_PAGES *(1<<9)  // fd table 최대 크기 3 * 512 : 1536
 
 /* A kernel thread or user process.
  *
@@ -94,6 +102,32 @@ struct thread {
 
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
+	struct list_elem allelem;
+	struct lock *mylock;
+	struct list donation_list;
+	struct list_elem donation_elem;
+	int base_priority;
+	int nice;
+	int recent_cpu;
+
+	struct file **fd_table;  // fd table
+  	int fd_idx;  // fd index
+
+	int exit_status;
+
+	struct list child_list;
+	struct list_elem child_elem;
+	struct lock child_list_lock;
+	struct intr_frame parent_intr_frame;
+
+	struct file *running;
+
+	struct semaphore wait_sema;
+	struct semaphore fork_sema;
+	struct semaphore free_sema;
+
+	struct thread* parent_thread;
+	
 
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
@@ -108,6 +142,12 @@ struct thread {
 	struct intr_frame tf;               /* Information for switching */
 	unsigned magic;                     /* Detects stack overflow. */
 };
+
+// struct priority_thread_queue{
+// 	int priority;
+// 	struct list ready_thread_list;
+// 	struct list_elem elem;
+// };
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
@@ -142,5 +182,12 @@ int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
 void do_iret (struct intr_frame *tf);
+
+void sort_ready_list();
+
+void priority_recovery(struct thread *curr);
+bool compare_priority (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
+bool compare_donation_priority (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
+void next_priority_yield(void);
 
 #endif /* threads/thread.h */
