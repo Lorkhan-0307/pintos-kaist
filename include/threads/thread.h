@@ -103,10 +103,10 @@ struct thread {
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
 	struct list_elem allelem;
-	struct lock *wait_lock;
-	struct list donated_priority;
-	struct list_elem donated_priority_elem;
-	int original_priority;
+	struct lock *mylock;
+	struct list donation_list;
+	struct list_elem donation_elem;
+	int base_priority;
 	int nice;
 	int recent_cpu;
 
@@ -184,5 +184,10 @@ int thread_get_load_avg (void);
 void do_iret (struct intr_frame *tf);
 
 void sort_ready_list();
+
+void priority_recovery(struct thread *curr);
+bool compare_priority (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
+bool compare_donation_priority (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
+void next_priority_yield(void);
 
 #endif /* threads/thread.h */

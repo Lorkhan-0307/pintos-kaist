@@ -428,14 +428,15 @@ sort_ready_list(){
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority (int new_priority) {
-	if(thread_mlfqs) return;
+	if(thread_mlfqs){
+		thread_current ()->priority = new_priority;
+		return;
+	}
 
-	thread_current ()->original_priority = new_priority;
+	thread_current ()->base_priority = new_priority;
 
 	// Advanced Scheduler 구현을 위해 우선순위 기부 제거
-	priority_return();
-
-	if(list_empty(&ready_list)) return;
+	priority_recovery(thread_current ());
 	
 	preempt_thread();
 }
@@ -550,9 +551,9 @@ init_thread (struct thread *t, const char *name, int priority) {
 	strlcpy (t->name, name, sizeof t->name);
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
-	t->original_priority = priority;
+	t->base_priority = priority;
 	t->magic = THREAD_MAGIC;
-	t->wait_lock = NULL;
+	t->mylock = NULL;
 	t->nice = NICE_DEFAULT;
 	t->recent_cpu = RECENT_CPU_DEFAULT;
 
@@ -568,7 +569,7 @@ init_thread (struct thread *t, const char *name, int priority) {
 
 	list_push_back(&all_list, &t->allelem);
 
-	list_init(&t->donated_priority);
+	list_init(&t->donation_list);
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should
@@ -750,4 +751,37 @@ allocate_tid (void) {
 	return tid;
 }
 
+
+bool
+compare_priority (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
+{
+  const struct thread *ta = list_entry(a, struct thread, elem);
+  const struct thread *tb = list_entry(b, struct thread, elem);
+  return ta->priority > tb->priority;
+}
+
+bool
+compare_donation_priority (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
+{
+  const struct thread *ta = list_entry(a, struct thread, donation_elem);
+  const struct thread *tb = list_entry(b, struct thread, donation_elem);
+  return ta->priority > tb->priority;
+}
+
+//우선순위 되돌리는 함수
+void priority_recovery(struct thread *curr){
+	if(!list_empty(&curr->donation_list)){
+		//리스트 비어있으면 그 맨 앞에서 양도받음
+		curr->priority = list_entry(list_front (&curr->donation_list), struct thread, donation_elem)->priority;
+	}else{
+		//아니면 자기 원래 우선순위로 돌아감.
+		curr->priority = curr->base_priority;
+	}
+}
+
+void next_priority_yield(void){
+	list_sort(&ready_list, compare_priority, NULL); 
+	if (!list_empty (&ready_list) && thread_current ()->priority < list_entry(list_front (&ready_list), struct thread, elem)->priority)
+        thread_yield ();
+}
 
