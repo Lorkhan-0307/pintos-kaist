@@ -37,11 +37,13 @@
 /* User stack start */
 #define USER_STACK 0x47480000
 
+/* Returns true if VADDR is a kernel virtual address. */
+#define is_kernel_vaddr(vaddr) ((uint64_t)(vaddr) >= KERN_BASE)
+
+
 /* Returns true if VADDR is a user virtual address. */
 #define is_user_vaddr(vaddr) (!is_kernel_vaddr((vaddr)))
 
-/* Returns true if VADDR is a kernel virtual address. */
-#define is_kernel_vaddr(vaddr) ((uint64_t)(vaddr) >= KERN_BASE)
 
 // FIXME: add checking
 /* Returns kernel virtual address at which physical address PADDR

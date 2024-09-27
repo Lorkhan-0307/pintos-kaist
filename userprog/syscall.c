@@ -17,6 +17,12 @@
 #include "threads/palloc.h"
 #include "threads/vaddr.h"
 
+#ifdef VM
+#include "vm/vm.h"
+#endif
+
+
+
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
@@ -41,6 +47,20 @@ void check_address(void *addr) {
 	}
 }
 
+void check_address_read(void *addr) {
+    struct thread *cur = thread_current();
+#ifdef VM
+    if (addr == NULL || !(is_user_vaddr(addr))) {
+		exit(-1);
+	}
+#else
+	if (addr == NULL || !(is_user_vaddr(addr)) || pml4_get_page(cur->pml4, addr) == NULL) {
+		exit(-1);
+	}
+#endif
+    
+}
+
 void
 syscall_init (void) {
 	write_msr(MSR_STAR, ((uint64_t)SEL_UCSEG - 0x10) << 48  |
@@ -58,7 +78,6 @@ syscall_init (void) {
 /* The main system call interface */
 void
 syscall_handler (struct intr_frame *f UNUSED) {
-	// TODO: Your implementation goes here.
 
 	switch (f->R.rax)
     {
@@ -222,6 +241,10 @@ static struct file *find_file_by_fd(int fd)
 int open(const char *file) {
 	check_address(file);
 
+
+    
+    
+    
     
     
 	//printf("SYSCALL:: OPEN : LOCK ACQUIRE\n");
@@ -285,10 +308,11 @@ int filesize(int fd)
 
 int read(int fd, void *buffer, unsigned size)
 {
-    check_address(buffer);
 
-    if (fd < 0 || fd > FDT_COUNT_LIMIT)
+    if (fd < 0 || fd > thread_current()->fd_idx)
         exit(-1);
+    
+    check_address_read(buffer);
     
    
     // 읽은 바이트 수 저장할 변수

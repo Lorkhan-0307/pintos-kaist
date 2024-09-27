@@ -90,6 +90,8 @@ initd (void *f_name) {
 
 	process_init ();
 
+	//printf("PROCESS CHECK : %s\n", f_name);
+
 	if (process_exec (f_name) < 0)
 		PANIC("Fail to launch initd\n");
 	NOT_REACHED ();
@@ -249,6 +251,8 @@ __do_fork (void *aux) {
 
 	process_init ();
 
+	
+
 	/* Finally, switch to the newly created process. */
 	if (succ)
 		do_iret (&if_);
@@ -279,6 +283,8 @@ process_exec (void *f_name) {
 
 	/* And then load the binary */
 	success = load (file_name, &_if);
+
+
 
 	/* If load failed, quit. */
 	palloc_free_page (file_name);
@@ -350,7 +356,6 @@ process_exit (void) {
 
 	sema_down(&cur->free_sema);
 
-	// 자원 정리를 구현해야 하는데...
 
 	process_cleanup ();
 }
@@ -458,6 +463,8 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
  * Returns true if successful, false otherwise. */
 static bool
 load (const char *command_line, struct intr_frame *if_) {
+
+	//printf("PROCESS.C :: LOAD : LOAD HAS STARTED\n");
 	struct thread *t = thread_current ();
 	struct ELF ehdr;
 	struct file *file = NULL;
@@ -494,6 +501,8 @@ load (const char *command_line, struct intr_frame *if_) {
 	if (t->pml4 == NULL)
 		goto done;
 	process_activate (thread_current ());
+
+	//printf("PROCESS.C :: LOAD : LINE 505\n");
 
 	/* Open executable file. */
 	file = filesys_open (command_line);
@@ -608,6 +617,8 @@ load (const char *command_line, struct intr_frame *if_) {
 				break;
 		}
 	}
+
+	//printf("TRY SETUP STACK\n");
 
 	/* Set up stack. */
 	if (!setup_stack (if_))
@@ -811,16 +822,56 @@ install_page (void *upage, void *kpage, bool writable) {
 	return (pml4_get_page (t->pml4, upage) == NULL
 			&& pml4_set_page (t->pml4, upage, kpage, writable));
 }
+
 #else
 /* From here, codes will be used after project 3.
  * If you want to implement the function for only project 2, implement it on the
  * upper block. */
+
+struct lazy_load_argument{
+	struct file *file;
+	off_t ofs;
+	uint8_t *upage;
+	size_t page_read_bytes;
+	size_t page_zero_bytes;
+	bool writable;
+
+};
+
+
 
 static bool
 lazy_load_segment (struct page *page, void *aux) {
 	/* TODO: Load the segment from the file */
 	/* TODO: This called when the first page fault occurs on address VA. */
 	/* TODO: VA is available when calling this function. */
+
+	struct lazy_load_argument *lla = (struct lazy_load_argument*) aux;
+
+	struct file* file = lla->file;
+	off_t ofs = lla->ofs;
+	uint8_t *upage = lla->upage;
+	size_t page_read_bytes = lla->page_read_bytes;
+	size_t page_zero_bytes = lla->page_zero_bytes;
+	bool writable = lla->writable;
+
+
+	uint8_t *kpage = page->frame->kva;
+	if (kpage == NULL)
+		return false;
+
+	file_seek(file, ofs);
+
+	/* Load this page. */
+	if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes) {
+		palloc_free_page (kpage);
+		return false;
+	}
+	memset (kpage + page_read_bytes, 0, page_zero_bytes);
+	
+	return true;
+
+
 }
 
 /* Loads a segment starting at offset OFS in FILE at address
@@ -853,13 +904,29 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 
 		/* TODO: Set up aux to pass information to the lazy_load_segment. */
 		void *aux = NULL;
-		if (!vm_alloc_page_with_initializer (VM_ANON, upage,
+		struct lazy_load_argument *lla = malloc(sizeof(struct lazy_load_argument));
+	
+		lla->ofs = ofs;
+		lla->file = file;
+		lla->page_read_bytes = page_read_bytes;
+		lla->page_zero_bytes = page_zero_bytes;
+		lla->upage = upage;
+		lla->writable = writable;
+
+		aux = lla;
+
+
+		if(!vm_alloc_page_with_initializer (VM_ANON, upage,
 					writable, lazy_load_segment, aux))
+		{
+			free(aux);
 			return false;
+		}
 
 		/* Advance. */
 		read_bytes -= page_read_bytes;
 		zero_bytes -= page_zero_bytes;
+		ofs += page_read_bytes;
 		upage += PGSIZE;
 	}
 	return true;
@@ -876,6 +943,26 @@ setup_stack (struct intr_frame *if_) {
 	 * TODO: You should mark the page is stack. */
 	/* TODO: Your code goes here */
 
+	//printf("PROCESS.C :: SETUP_STACK : stack step 1\n");
+
+	if(!vm_alloc_page_with_initializer(VM_ANON | VM_MARKER_0 ,
+	 stack_bottom, true, NULL, NULL)){
+		return success;
+	}
+
+	//printf("PROCESS.C :: SETUP_STACK : stack step 2\n");
+
+	if(!vm_claim_page(stack_bottom)){
+		return success;
+	}
+
+	//printf("PROCESS.C :: SETUP_STACK : stack step 3\n");
+
+
+	if_->rsp = USER_STACK;
+	
+	success = true;
+	
 	return success;
 }
 #endif /* VM */

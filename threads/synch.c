@@ -253,7 +253,6 @@ lock_release (struct lock *lock) {
 	ASSERT (lock != NULL);
 	ASSERT (lock_held_by_current_thread (lock));
 
-
 		//리스트가 차 있음. 즉, 기부받은 적이 있음.
 	while(!list_empty(&lock->holder->donation_list) && !thread_mlfqs){
 		struct thread *donation_thread = list_entry (list_front (&lock->holder->donation_list), struct thread, donation_elem);
