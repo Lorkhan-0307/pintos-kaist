@@ -828,16 +828,6 @@ install_page (void *upage, void *kpage, bool writable) {
  * If you want to implement the function for only project 2, implement it on the
  * upper block. */
 
-struct lazy_load_argument{
-	struct file *file;
-	off_t ofs;
-	uint8_t *upage;
-	size_t page_read_bytes;
-	size_t page_zero_bytes;
-	bool writable;
-
-};
-
 
 
 static bool

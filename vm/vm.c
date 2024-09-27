@@ -285,31 +285,33 @@ supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
 		struct supplemental_page_table *src UNUSED) {
 	// 순회를 먼저 진행하면서 하나하나 복사하고, 이중에 초기화되지 않은 페이지가 있는 경우 할당 및 즉시 클레임...
 
-	// struct hash_elem i;
-	// hash_first (&i, src);
-	// while (hash_next (&i)) {
-	// 	struct page *p = hash_entry (hash_cur (&i), struct page, elem);
-	// 	struct page *copied_p = malloc(sizeof(struct page));
+	struct hash_elem i;
+	hash_first (&i, src);
+	while (hash_next (&i)) {
+		struct page *p = hash_entry (hash_cur (&i), struct page, elem);
 
-	// 	copied_p->anon = p->anon;
-	// 	copied_p->file = p->file;
-	// 	copied_p->frame = p->frame;
-	// 	copied_p->operations = p->operations;
-	// 	copied_p->uninit = p->uninit;
-	// 	copied_p->va = p->va;
-	// 	copied_p->writable = p->writable;
-	// 	hash_insert(dst, &copied_p->elem);
+		switch(p->operations->type){
+			case VM_ANON:
+				vm_alloc_page_with_initializer(p->operations->type, p->va, p->writable, anon_initializer, NULL);
+				break;
+			default:
+				struct lazy_load_argument *lla = malloc(sizeof(struct lazy_load_argument));
+				memcpy(lla, p->uninit.aux, sizeof(struct lazy_load_argument));
+				// init, initializer 까지 가져와야함. 아래에 이를 추가
+				vm_alloc_page_with_initializer(p->operations->type, p->va, p->writable, NULL, NULL);
+				break;
 
-		
-	// 	if(p->frame != NULL){
-	// 		if(!pml4_set_page(src->pml4, copied_p->va, copied_p->frame->kva, copied_p->writable)){
-	// 		//printf("VM.C :: VM_CLAIM_PAGE : PML4 SET FAILED\n");
-	// 		return false;
-	// 		}	
-	// 	}
-	// }
+		}
 
-	// printf("supplemental_page_table_copy complete\n");
+		if(p->operations->type != VM_UNINIT){
+
+			struct page *copied_p = hash_entry (hash_cur (&i), struct page, elem);
+			// 할당 및 즉시 클레임
+			vm_do_claim_page(copied_p);
+		}
+	}
+
+	printf("supplemental_page_table_copy complete\n");
 	return true;
 }
 
@@ -320,15 +322,17 @@ supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
 	 * TODO: writeback all the modified contents to the storage. */
 	//if(spt) hash_destroy(spt->h_table, destruction_supplemntal_page_table);
 	//printf("HASH TRY DESTROY\n");
-	if(spt == NULL) printf("SPT IS NULL\n");
+	// if(spt == NULL) printf("SPT IS NULL\n");
 
 	// struct hash_elem i;
 	// hash_first (&i, spt);
 	// while (hash_next (&i)) {
 	// 	struct page *p = hash_entry (hash_cur (&i), struct page, elem);
 	// 	destroy(p);
-	// 	free(p);
 	// }
+
+
+	//hash_destroy(&spt->h_table, NULL);
 	//printf("HASH DESTROY\n");
 }
 
