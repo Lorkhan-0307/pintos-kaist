@@ -346,9 +346,11 @@ process_exit (void) {
 		close(i);
 	}
 
-	//printf("PROCESS.C :: PROCESS_EXIT : LINE 324\n");
+	//printf("PROCESS.C :: PROCESS_EXIT : LINE 349\n");
 
 	palloc_free_multiple(cur->fd_table, FDT_PAGES);
+
+	// printf("PROCESS.C :: PROCESS_EXIT : palloc complete\n");
 
 	
 	
@@ -356,6 +358,7 @@ process_exit (void) {
 
 	sema_down(&cur->free_sema);
 
+	// printf("PROCESS.C :: PROCESS_EXIT : sema complete\n");
 
 	process_cleanup ();
 }
@@ -366,7 +369,10 @@ process_cleanup (void) {
 	struct thread *curr = thread_current ();
 
 #ifdef VM
+	// printf("PROCESS.C :: TRY KILL SPT\n");
 	supplemental_page_table_kill (&curr->spt);
+	// printf("PROCESS.C :: KILL SPT COMPLETE\n");
+
 #endif
 
 	uint64_t *pml4;
@@ -451,7 +457,7 @@ struct ELF64_PHDR {
 #define ELF ELF64_hdr
 #define Phdr ELF64_PHDR
 
-static bool setup_stack (struct intr_frame *if_);
+
 static bool validate_segment (const struct Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		uint32_t read_bytes, uint32_t zero_bytes,
@@ -788,7 +794,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 }
 
 /* Create a minimal stack by mapping a zeroed page at the USER_STACK */
-static bool
+bool
 setup_stack (struct intr_frame *if_) {
 	uint8_t *kpage;
 	bool success = false;
@@ -885,6 +891,11 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 	ASSERT (pg_ofs (upage) == 0);
 	ASSERT (ofs % PGSIZE == 0);
 
+	if(hash_size(&thread_current()->spt.h_table) == 0){
+		//printf("HASH IS ZERO\n");
+		supplemental_page_table_init(&thread_current()->spt);
+	}
+
 	while (read_bytes > 0 || zero_bytes > 0) {
 		/* Do calculate how to fill this page.
 		 * We will read PAGE_READ_BYTES bytes from FILE
@@ -923,7 +934,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 }
 
 /* Create a PAGE of stack at the USER_STACK. Return true on success. */
-static bool
+bool
 setup_stack (struct intr_frame *if_) {
 	bool success = false;
 	void *stack_bottom = (void *) (((uint8_t *) USER_STACK) - PGSIZE);

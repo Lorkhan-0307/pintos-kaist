@@ -91,6 +91,7 @@ struct page_operations {
 struct supplemental_page_table {
 	struct hash h_table;
 	uint64_t *pml4; 
+	bool isInitialized;
 };
 
 // struct page_table_elem {

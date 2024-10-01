@@ -15,6 +15,8 @@
 
 unsigned page_hash (const struct hash_elem *p_, void *aux UNUSED);
 
+void spt_destructor(struct hash_elem *e, void* aux);
+
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
 void
@@ -207,8 +209,10 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 	/* TODO: Validate the fault */
 	/* TODO: Your code goes here */
 
-	//printf("SEARCH FOR ADDR %p\n", addr);
-	//printf("SEARCH FOR PAGE %p\n", pg_round_down(addr));
+	if(is_kernel_vaddr(addr)) return false;
+	// 만약 스택 성장으로 해결이 가능한지...?
+
+	void *rsp_stack = is_kernel_vaddr(f->rsp) ? thread_current()->rsp_stack : f->rsp;
 
 
 	page = spt_find_page(spt, pg_round_down(addr));
@@ -265,8 +269,6 @@ vm_do_claim_page (struct page *page) {
 
 	//printf("VM_DO_CLAIM_PAGE :: SET PAGE HAS COMPLETED\n");
 
-
-
 	return swap_in (page, frame->kva);
 }
 
@@ -276,64 +278,140 @@ supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
 	//printf("TRY HASH_INIT\n");
 	hash_init(&spt->h_table, page_hash, hash_less_addr, NULL);
 	spt->pml4 = thread_current()->pml4;
+	spt->isInitialized = true;
 	//printf("HASH_INIT\n");
 }
 
+
+// build for debug
+const char *vm_type_strings[] = {
+    "VM_UNINIT",
+    "VM_ANON",
+    "VM_FILE",
+    "VM_PAGE_CACHE"
+};
+
+const char *from_get_vm_type_string(enum vm_type type) {
+    switch (type) {
+        case VM_UNINIT: return "VM_UNINIT";
+        case VM_ANON: return "VM_ANON";
+        case VM_FILE: return "VM_FILE";
+        case VM_PAGE_CACHE: return "VM_PAGE_CACHE";
+        case VM_MARKER_0: return "VM_MARKER_0";
+        case VM_MARKER_1: return "VM_MARKER_1";
+		case VM_ANON | VM_MARKER_0 : return "VM_MARKER_0 | VM_ANON";
+        default: return "UNKNOWN";
+    }
+}
+
+//fin
 /* Copy supplemental page table from src to dst */
 bool
 supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
 		struct supplemental_page_table *src UNUSED) {
-	// 순회를 먼저 진행하면서 하나하나 복사하고, 이중에 초기화되지 않은 페이지가 있는 경우 할당 및 즉시 클레임...
-
+	//순회를 먼저 진행하면서 하나하나 복사하고, 이중에 초기화되지 않은 페이지가 있는 경우 할당 및 즉시 클레임...
+	//printf("VM.C ::supplemental_page_table_copy: start\n");
+	//printf("VM.C ::supplemental_page_table_copy: src elem num : %d\n", hash_size(&src->h_table));
 	struct hash_elem i;
-	hash_first (&i, src);
+	hash_first (&i, &src->h_table);
 	while (hash_next (&i)) {
-		struct page *p = hash_entry (hash_cur (&i), struct page, elem);
+		//printf("INSIDE HASH NEXT\n");
+		struct page *original_page = hash_entry (hash_cur (&i), struct page, elem);
+		//printf("IN HASH : %p\n", original_page->va);
+		if(page_get_type(original_page) == NULL) printf("VM.C ::supplemental_page_table_copy: type is NULL\n");
+		//printf("VM.C ::supplemental_page_table_copy: type : %s\n", from_get_vm_type_string(page_get_type(original_page)));
 
-		switch(p->operations->type){
-			case VM_ANON:
-				vm_alloc_page_with_initializer(p->operations->type, p->va, p->writable, anon_initializer, NULL);
-				break;
-			default:
-				struct lazy_load_argument *lla = malloc(sizeof(struct lazy_load_argument));
-				memcpy(lla, p->uninit.aux, sizeof(struct lazy_load_argument));
-				// init, initializer 까지 가져와야함. 아래에 이를 추가
-				vm_alloc_page_with_initializer(p->operations->type, p->va, p->writable, NULL, NULL);
-				break;
+		// SETUP
 
+		enum vm_type type = page_get_type(original_page);
+		void *va = original_page->va;
+		bool writable = original_page->writable;
+		vm_initializer *init = original_page->uninit.init;
+		void *aux = original_page->uninit.aux;
+
+
+		if(original_page->uninit.type & VM_MARKER_0){
+			setup_stack(&thread_current()->tf);
 		}
 
-		if(p->operations->type != VM_UNINIT){
-
-			struct page *copied_p = hash_entry (hash_cur (&i), struct page, elem);
-			// 할당 및 즉시 클레임
-			vm_do_claim_page(copied_p);
+		else{
+			switch(type){
+				// case VM_MARKER_0:
+				// 	setup_stack(&thread_current()->tf);
+				// 	break;
+				case VM_UNINIT:
+					if (!vm_alloc_page_with_initializer(type, va, writable, NULL, aux)) return false;
+					break;
+				default:
+					if(!vm_alloc_page(type, va, writable)) return false;
+					if(!vm_claim_page(va)) return false;
+					break;
+			}
 		}
+		
+		//printf("VM.C ::supplemental_page_table_copy: switch clear!\n");
+
+		if(original_page->operations->type != VM_UNINIT){
+			//struct page *copied_p = hash_entry (hash_cur (&i), struct page, elem);
+			struct page *copied_p = spt_find_page(dst, original_page->va);
+			memcpy(copied_p->frame->kva, original_page->frame->kva, PGSIZE);
+		}
+		//printf("VM.C ::supplemental_page_table_copy: elem copy clear!\n");
 	}
 
-	printf("supplemental_page_table_copy complete\n");
+	//printf("VM.C ::supplemental_page_table_copy: fin\n");
 	return true;
 }
+
+
 
 /* Free the resource hold by the supplemental page table */
 void
 supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
 	/* TODO: Destroy all the supplemental_page_table hold by thread and
 	 * TODO: writeback all the modified contents to the storage. */
-	//if(spt) hash_destroy(spt->h_table, destruction_supplemntal_page_table);
-	//printf("HASH TRY DESTROY\n");
+
+	if(spt->isInitialized == false){
+		return;
+	}
+
+	spt->isInitialized = true;
+
+	// printf("HASH TRY DESTROY\n");
 	// if(spt == NULL) printf("SPT IS NULL\n");
+	// else printf("SPT IS NOT NULL\n");
 
-	// struct hash_elem i;
-	// hash_first (&i, spt);
-	// while (hash_next (&i)) {
-	// 	struct page *p = hash_entry (hash_cur (&i), struct page, elem);
-	// 	destroy(p);
-	// }
+	struct hash_iterator i;
+    hash_first(&i, &spt->h_table);
 
+	// printf("SPT SIZE : %d\n", hash_size(&spt->h_table));
+	// printf("BUCKET SIZE : %d\n", &spt->h_table.bucket_cnt);
 
-	//hash_destroy(&spt->h_table, NULL);
-	//printf("HASH DESTROY\n");
+	if(hash_size(&spt->h_table) > 0){
+
+		// printf("HASH SIZE > 0\n");
+
+		while(hash_next(&i) != NULL){
+			struct page *page = hash_entry(hash_cur(&i), struct page, elem);
+
+			if(page->operations->type == VM_FILE){
+				do_munmap(page->va);
+			}
+		}
+	}
+
+    if(hash_size(&spt->h_table) > 0) {
+		// printf("TRY HASH DESTROY by destructor\n");
+		hash_destroy(&spt->h_table, spt_destructor);
+	}
+
+	// printf("HASH DESTROY\n");
+}
+
+void spt_destructor(struct hash_elem *e, void* aux){
+    const struct page *p = hash_entry(e, struct page, elem);
+	// printf("CURRENT PAGE : %p\n", p->va);
+	free(p);
 }
 
 bool *hash_less_addr(const struct hash_elem *a,

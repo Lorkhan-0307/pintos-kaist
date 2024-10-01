@@ -79,6 +79,10 @@ syscall_init (void) {
 void
 syscall_handler (struct intr_frame *f UNUSED) {
 
+    #ifdef VM
+        thread_current()->rsp_stack = f->rsp; 
+    #endif
+
 	switch (f->R.rax)
     {
         case SYS_HALT:
@@ -140,6 +144,7 @@ void exit(int status){
 	struct thread *cur = thread_current();
     cur->exit_status = status;
 	printf("%s: exit(%d)\n", cur->name, status);
+    // printf("EXIT SYSCALL INVOLVED\n");
 	thread_exit();
 }
 
