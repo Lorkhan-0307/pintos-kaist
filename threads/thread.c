@@ -381,8 +381,11 @@ thread_exit (void) {
 	ASSERT (!intr_context ());
 
 #ifdef USERPROG
+	// printf("IS THIS USERPROG?\n");
 	process_exit ();
 #endif
+
+	// printf("PROCESS EXIT CLEARED...\n");
 
 	/* Just set our status to dying and schedule another process.
 	   We will be destroyed during the call to schedule_tail(). */

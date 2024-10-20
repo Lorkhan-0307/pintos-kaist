@@ -65,4 +65,16 @@ uninit_destroy (struct page *page) {
 	struct uninit_page *uninit UNUSED = &page->uninit;
 	/* TODO: Fill this function.
 	 * TODO: If you don't have anything to do, just return. */
+
+	free(uninit->page_initializer);
+	free(uninit->init);
+	switch(uninit->type){
+		case VM_TYPE(VM_ANON):
+			//free(uninit->page_initializer);
+			break;
+		default:
+			break;
+	}
+	
+	return;
 }
